@@ -123,21 +123,6 @@ static void lcd_printTime(uint32_t t)
   lcd.print(s, DEC);
 }
 
-static void sleepNoBod(void)
-{
-  // Turn off Brown Out Detector
-  // sleep must be entered within 3 cycles of BODS being set
-  sleep_enable();
-  MCUCR = MCUCR | bit(BODSE) | bit(BODS);
-  MCUCR = (MCUCR & ~bit(BODSE)) | bit(BODS);
-
-  // Sleep
-  sleep_cpu();
-
-  // Back from sleep
-  sleep_disable();
-}
-
 static void sleep(uint16_t ms)
 {
   //delay(ms); return;
@@ -145,7 +130,7 @@ static void sleep(uint16_t ms)
 
   set_sleep_mode(SLEEP_MODE_IDLE);
   while (millis() - start < ms)
-    sleepNoBod();
+    sleep_mode();
 }
 
 static void setTone(uint16_t freq)
