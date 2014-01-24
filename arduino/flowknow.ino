@@ -26,9 +26,10 @@ static uint32_t g_RunningTime;
 static float g_FixedScale;
 static uint16_t g_Battery;
 
-#define LOOP_PERIOD     250
-#define LOOP_COUNT_MAX  2
-#define LOOP_SMOOTH     1.5f
+#define LOOP_PERIOD     333
+#define LOOPCNT_SENSOR  (1000/LOOP_PERIOD)
+#define LOOPCNT_LCD     2
+#define LOOP_SMOOTH     2.0f
 
 #define LITERS_PER_GALLON 0.264172f
 #define SENSOR_HZ_PER_LPM 7.5f
@@ -325,14 +326,16 @@ void setup()
 
 void loop()
 {
-  static uint8_t loopcnt;
+  static uint8_t loopcntSensor;
+  static uint8_t loopcntLcd;
   static uint32_t lastLoopMillis;
+  static float hzLast = 0.0f;
   static float hzFastAvg = NAN;
 
-  if (++loopcnt >= LOOP_COUNT_MAX)
+  /* Read from the sensor */
+  if (++loopcntSensor >= LOOPCNT_SENSOR)
   {
-    loopcnt = 0;
-    float hz;
+    loopcntSensor = 0;
     struct timerInfo localTimerInfo;
 
     ATOMIC_BLOCK(ATOMIC_FORCEON)
@@ -349,7 +352,7 @@ void loop()
     {
       uint16_t localT1 = localTimerInfo.totalTime / localTimerInfo.cnt;
       float scale = getHzScale(localT1);
-      hz = T1FREQ * scale / localT1;
+      hzLast = T1FREQ * scale / localT1;
       g_Liters += localTimerInfo.cnt * scale / (SENSOR_HZ_PER_LPM * 60.0f);
       g_RunningTime += millis() - lastLoopMillis;
 
@@ -359,10 +362,16 @@ void loop()
 #endif
     }
     else
-      hz = 0.0f;
+      hzLast = 0.0f;
 
     lastLoopMillis = millis();
-    calcExpMovingAverage(2.0f/(1 + LOOP_SMOOTH), &hzFastAvg, hz);
+  }
+
+  /* Update the LCD */
+  if (++loopcntLcd >= LOOPCNT_LCD)
+  {
+    loopcntLcd = 0;
+    calcExpMovingAverage(2.0f/(1 + LOOP_SMOOTH), &hzFastAvg, hzLast);
 
     float lpm = hzFastAvg / SENSOR_HZ_PER_LPM;
     lcd.setCursor(0, 1);
@@ -387,6 +396,7 @@ void loop()
     Serial.print("{lpm,T,"); Serial.print(lpm, 2); Serial.print("}"); Serial_nl();
 #endif
   }
+
   sleep(LOOP_PERIOD);
   lcd_updateAnim();
 
