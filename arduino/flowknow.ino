@@ -108,7 +108,7 @@ static void lcd_printTime(uint32_t t)
   sprintf(buf, "%2u:%2.2u:%2.2u", h, m, s);
   lcd.print(buf);
   */
-  
+
   if (h < 10)
     lcd.print(' ');
   lcd.print(h, DEC);
@@ -120,8 +120,8 @@ static void lcd_printTime(uint32_t t)
   if (s < 10)
     lcd.print('0');
   lcd.print(s, DEC);
-  
 }
+
 static void sleepNoBod(void)
 {
   // Turn off Brown Out Detector
@@ -129,10 +129,10 @@ static void sleepNoBod(void)
   sleep_enable();
   MCUCR = MCUCR | bit(BODSE) | bit(BODS);
   MCUCR = (MCUCR & ~bit(BODSE)) | bit(BODS);
-  
+
   // Sleep
   sleep_cpu();
-  
+
   // Back from sleep
   sleep_disable();
 }
@@ -208,7 +208,7 @@ static void serial_update(void)
   {
     char c = Serial.read();
     // support CR, LF, or CRLF line endings
-    if (c == '\n' || c == '\r')  
+    if (c == '\n' || c == '\r')
     {
       if (len != 0 && g_SerialBuff[0] == '/')
         handleCommandUrl(&g_SerialBuff[1]);
