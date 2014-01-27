@@ -123,14 +123,16 @@ static void lcd_printTime(uint32_t t)
   lcd.print(s, DEC);
 }
 
-static void sleep(uint16_t ms)
+static void sleep(void)
 {
   //delay(ms); return;
-  uint32_t start = millis();
+  static uint32_t lastSleepEnd;
 
   set_sleep_mode(SLEEP_MODE_IDLE);
-  while (millis() - start < ms)
+  while (millis() - lastSleepEnd < LOOP_PERIOD)
     sleep_mode();
+
+  lastSleepEnd += LOOP_PERIOD;
 }
 
 static void setTone(uint16_t freq)
@@ -331,7 +333,7 @@ void loop()
     }
 
 #if SERIAL_INTERFACE
-    Serial.print('C'); Serial.print(localTimerInfo.cnt); Serial.print(' ');
+    Serial.print(millis(), DEC); Serial.print(" C"); Serial.print(localTimerInfo.cnt); Serial.print(' ');
 #endif
     if (localTimerInfo.cnt != 0)
     {
@@ -349,6 +351,8 @@ void loop()
     else
       hzLast = 0.0f;
 
+    lcd.setCursor(11, 3);
+    lcd_printTime(g_RunningTime / 1000UL);
     lastLoopMillis = millis();
   }
 
@@ -373,17 +377,13 @@ void loop()
     fp.print(lcd, gallons, 6, 2);
     lcd.print(" gal");
    
-    lcd.setCursor(11, 3);
-    lcd_printTime(g_RunningTime / 1000UL);
-
+    lcd_updateAnim();
 #if SERIAL_INTERFACE
     Serial.print("{hz,T,"); Serial.print(hzFastAvg, 2); Serial.print("}"); Serial_nl();
     Serial.print("{lpm,T,"); Serial.print(lpm, 2); Serial.print("}"); Serial_nl();
 #endif
   }
-
-  sleep(LOOP_PERIOD);
-  lcd_updateAnim();
+  sleep();
 
 #if SERIAL_INTERFACE
   serial_update();
