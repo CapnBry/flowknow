@@ -305,6 +305,7 @@ void setup()
   TCCR1A = 0;
   // Input Capture noise canceller | rising edge | CS12=256 prescaler = 62.5k/sec
   TCCR1B = bit(ICNC1) | bit(ICES1) | bit(CS12);
+  TCNT1 = 0;
   // input capture interrupt
   TIMSK1 |= bit(ICIE1);
 
@@ -314,7 +315,7 @@ void setup()
 
 void loop()
 {
-  static uint8_t loopcntSensor;
+  static uint8_t loopcntSensor = LOOPCNT_SENSOR - 1;
   static uint8_t loopcntLcd;
   static uint32_t lastLoopMillis;
   static float hzLast = 0.0f;
@@ -323,8 +324,8 @@ void loop()
   /* Read from the sensor */
   if (++loopcntSensor >= LOOPCNT_SENSOR)
   {
-    loopcntSensor = 0;
     struct timerInfo localTimerInfo;
+    loopcntSensor = 0;
 
     ATOMIC_BLOCK(ATOMIC_FORCEON)
     {
@@ -352,6 +353,7 @@ void loop()
     else
       hzLast = 0.0f;
 
+    lcd_updateAnim();
     lcd.setCursor(11, 3);
     lcd_printTime(g_RunningTime / 1000UL);
     lastLoopMillis = millis();
@@ -378,7 +380,6 @@ void loop()
     fp.print(lcd, gallons, 6, 2);
     lcd.print(" gal");
    
-    lcd_updateAnim();
 #if SERIAL_INTERFACE
     Serial.print("{hz,T,"); Serial.print(hzFastAvg, 2); Serial.print("}"); Serial_nl();
     Serial.print("{lpm,T,"); Serial.print(lpm, 2); Serial.print("}"); Serial_nl();
