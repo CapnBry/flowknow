@@ -3,6 +3,7 @@
 
 #include "LiquidCrystal.h"
 
+// Tone output to be looped back as input for debugging
 //#define CONFIG_TONE_OUTPUT 1
 //#define SERIAL_INTERFACE 1
 
