@@ -26,10 +26,10 @@ static uint32_t g_RunningTime;
 static float g_FixedScale;
 static uint16_t g_Battery;
 
-#define LOOP_PERIOD     333
+#define LOOP_PERIOD     200
 #define LOOPCNT_SENSOR  (1000/LOOP_PERIOD)
-#define LOOPCNT_LCD     2
-#define LOOP_SMOOTH     2.0f
+#define LOOPCNT_LCD     3
+#define LOOP_SMOOTH     1.5f
 
 #define LITERS_PER_GALLON 0.264172f
 #define SENSOR_HZ_PER_LPM 7.5f
