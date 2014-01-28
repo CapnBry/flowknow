@@ -3,6 +3,13 @@
 
 #include "LiquidCrystal.h"
 
+/*****
+  Relies on being built with F_CPU = 8000000. Will try to adjust CPU clock
+  scale if 16MHz crystal or 1MHz DIV8 fuse is set. The lower CPU clock is
+  used to allow TIMER1 to go for over 2 seconds with a 256 scale without
+  overflowing 16 bits.
+*****/
+
 // Tone output to be looped back as input for debugging
 //#define CONFIG_TONE_OUTPUT 1
 //#define SERIAL_INTERFACE 1
@@ -27,10 +34,14 @@ static uint32_t g_RunningTime;
 static float g_FixedScale;
 static uint16_t g_Battery;
 
-#define LOOP_PERIOD     200
-#define LOOPCNT_SENSOR  (1000/LOOP_PERIOD)
-#define LOOPCNT_LCD     3
-#define LOOP_SMOOTH     1.5f
+#define EXPMA(x) (2.0f / (1+x))
+
+#define LOOP_PERIOD        200
+#define LOOPCNT_SENSOR_LO  (600/LOOP_PERIOD)
+#define LOOPCNT_SENSOR_HI  (1600/LOOP_PERIOD)
+#define LOOPCNT_LCD        LOOPCNT_SENSOR_LO
+#define LOOP_SMOOTH_COARSE EXPMA(1.2f)
+#define LOOP_SMOOTH_FINE   EXPMA(1.8f)
 
 #define LITERS_PER_GALLON 0.264172f
 #define SENSOR_HZ_PER_LPM 7.5f
@@ -46,11 +57,12 @@ static struct tagScaleLevels
   // Measure 1L of liquid as indicated by the total L count
   // If more than 1L adjust the scale HIGHER
   // If less than 1L adjust the scale LOWER
-  { 12500, 1.302f },  // 5Hz     0.667 LPM
-  { 8333, 1.201f },   // 7.5Hz   1 LPM
-  { 5556, 1.150f },   // 11.25Hz 1.5 LPM
-  { 4167, 1.105f },   // 15Hz    2 LPM
-  { 2778, 1.093f },   // 22.5Hz  3 LPM
+  // First number is T1FREQ / (LPM * SENSOR_HZ_PER_LPM)
+  { 6250, 1.35f },    // 5Hz     0.667 LPM
+  { 4166, 1.20f },    // 7.5Hz   1 LPM
+  { 2778, 1.15f },    // 11.25Hz 1.5 LPM
+  { 2083, 1.11f },    // 15Hz    2 LPM
+  { 1385, 1.10f },    // 22.5Hz  3 LPM
   //{ 2083, 1.093f },   // 30Hz    4 LPM
   //{ 1667, 1.093f },   // 37.5Hz  5 LPM
 };
@@ -83,12 +95,23 @@ static void Serial_nl(void)
 }
 #endif /* SERIAL_INTERFACE */
 
-static void calcExpMovingAverage(const float smooth, float *currAverage, float newValue)
+static void calcExpMovingAverage(const float smoothCoarse, const float smoothFine,
+                                  float *currAverage, float newValue)
 {
   if (isnan(*currAverage))
     *currAverage = newValue;
   else
   {
+    // Divide by 0 here yields infinity which will use smoothCoarse
+    float diff = newValue / *currAverage;
+    float smooth;
+    // If newValue is outside 10% of currAverage, use smoothCoarse
+    // to reach the new value more quickly
+    if (diff > 1.1f || diff < 0.90f)
+      smooth = smoothCoarse;
+    else
+      smooth = smoothFine;
+
     newValue = newValue - *currAverage;
     *currAverage = *currAverage + (smooth * newValue);
   }
@@ -152,6 +175,9 @@ static void setTone(uint16_t freq)
 static void setHzScaleLevel(float val)
 {
   g_FixedScale = val;
+#ifdef SERIAL_INTERFACE
+  Serial.print("Scale="); Serial.println(g_FixedScale, 3);
+#endif
 }
 
 static void resetCounts(void)
@@ -160,7 +186,7 @@ static void resetCounts(void)
 }
 
 #if SERIAL_INTERFACE
-void csvParseI(char *vals, void (*c)(unsigned char idx, int val))
+static void csvParseI(char *vals, void (*c)(unsigned char idx, int val))
 {
   unsigned char idx = 0;
   while (*vals)
@@ -241,6 +267,15 @@ static void lcd_updateAnim(void)
     return;
   }
   
+#ifdef SERIAL_INTERFACE
+  if (g_FixedScale != 0.0f)
+  {
+    lcd.print("Sca: ");
+    fp.print(lcd, g_FixedScale, 5, 3);
+    return;
+  }
+#endif
+
   uint8_t pos = (uint16_t)(g_Liters * 10) % 10;
   for (uint8_t i=0; i<10; ++i)
   {
@@ -277,8 +312,27 @@ static float getHzScale(uint16_t t1ticks)
   return SCALE_LEVELS[SCALE_LEVEL_CNT-1].scale;
 }
 
+static void scaleTo8MHz(void)
+{
+  unsigned char scale = CLKPR;
+  // if prescale is 0b11 (3), assume fuse DIV8 is set, bump up to full
+  if (scale == 0b11)
+  {
+    CLKPR = bit(CLKPCE);
+    CLKPR = 0;
+  }
+  // Else scale is probably 0, bump down from 16MHz (1/2)
+  else
+  {
+    CLKPR = bit(CLKPCE);
+    CLKPR = 1;
+  }
+}
+
 void setup()
 {
+  scaleTo8MHz();
+
   // Disable Analog Comparator
   ACSR = bit(ACD);
   // Disable Digital Input on ADC pins
@@ -303,7 +357,7 @@ void setup()
 
   // Timer1 Normal operation
   TCCR1A = 0;
-  // Input Capture noise canceller | rising edge | CS12=256 prescaler = 62.5k/sec
+  // Input Capture noise canceller | rising edge | CS12=256 prescaler = 62.5k/sec (@16MHz) 31.25k (@8MHz)
   TCCR1B = bit(ICNC1) | bit(ICES1) | bit(CS12);
   TCNT1 = 0;
   // input capture interrupt
@@ -315,14 +369,15 @@ void setup()
 
 void loop()
 {
-  static uint8_t loopcntSensor = LOOPCNT_SENSOR - 1;
+  static uint8_t loopCntSensorTop = LOOPCNT_SENSOR_LO;
+  static uint8_t loopcntSensor;
   static uint8_t loopcntLcd;
   static uint32_t lastLoopMillis;
   static float hzLast = 0.0f;
-  static float hzFastAvg = NAN;
+  static float hzFastAvg = 0.0f;
 
   /* Read from the sensor */
-  if (++loopcntSensor >= LOOPCNT_SENSOR)
+  if (++loopcntSensor >= loopCntSensorTop)
   {
     struct timerInfo localTimerInfo;
     loopcntSensor = 0;
@@ -335,7 +390,8 @@ void loop()
     }
 
 #if SERIAL_INTERFACE
-    Serial.print(millis(), DEC); Serial.print(" C"); Serial.print(localTimerInfo.cnt); Serial.print(' ');
+    Serial.print(millis(), DEC); Serial.print(' '); Serial.print(loopCntSensorTop, DEC);
+    Serial.print(" C"); Serial.print(localTimerInfo.cnt); Serial.print(' ');
 #endif
     if (localTimerInfo.cnt != 0)
     {
@@ -353,6 +409,22 @@ void loop()
     else
       hzLast = 0.0f;
 
+    // Adjust the SENSOR loop duration to prevent error caused by low sample rate
+    // but not so fast the display updates so quickly it is unreadable
+    if (localTimerInfo.cnt < 10 && loopCntSensorTop < LOOPCNT_SENSOR_HI)
+      ++loopCntSensorTop;
+    else if (localTimerInfo.cnt > 15 && loopCntSensorTop > LOOPCNT_SENSOR_LO)
+      --loopCntSensorTop;
+
+    lcd.setCursor(10, 1);
+    fp.print(lcd, g_Liters, 6, 2);
+    lcd.print(" L  ");
+
+    float gallons = g_Liters * LITERS_PER_GALLON;
+    lcd.setCursor(10, 2);
+    fp.print(lcd, gallons, 6, 2);
+    lcd.print(" gal");
+
     lcd_updateAnim();
     lcd.setCursor(11, 3);
     lcd_printTime(g_RunningTime / 1000UL);
@@ -363,31 +435,27 @@ void loop()
   if (++loopcntLcd >= LOOPCNT_LCD)
   {
     loopcntLcd = 0;
-    calcExpMovingAverage(2.0f/(1 + LOOP_SMOOTH), &hzFastAvg, hzLast);
+    calcExpMovingAverage(LOOP_SMOOTH_COARSE, LOOP_SMOOTH_FINE, &hzFastAvg, hzLast);
 
     float lpm = hzFastAvg / SENSOR_HZ_PER_LPM;
     lcd.setCursor(0, 1);
     fp.print(lcd, lpm, 5, 2);
     lcd.print(" L/m ");
-    fp.print(lcd, g_Liters, 6, 2);
-    lcd.print(" L  ");
 
-    float gallons = g_Liters * LITERS_PER_GALLON;
     float gpm = lpm * LITERS_PER_GALLON;
     lcd.setCursor(0, 2);
     fp.print(lcd, gpm, 5, 3);
     lcd.print(" GPM ");
-    fp.print(lcd, gallons, 6, 2);
-    lcd.print(" gal");
    
 #if SERIAL_INTERFACE
     Serial.print("{hz,T,"); Serial.print(hzFastAvg, 2); Serial.print("}"); Serial_nl();
     Serial.print("{lpm,T,"); Serial.print(lpm, 2); Serial.print("}"); Serial_nl();
 #endif
   }
-  sleep();
 
 #if SERIAL_INTERFACE
   serial_update();
 #endif
+
+  sleep();
 }
