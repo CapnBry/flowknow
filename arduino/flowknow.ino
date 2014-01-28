@@ -10,7 +10,7 @@
   overflowing 16 bits.
 *****/
 
-// Tone output to be looped back as input for debugging
+// Tone output to be looped back as input for debugging (31Hz minimum)
 //#define CONFIG_TONE_OUTPUT 1
 //#define SERIAL_INTERFACE 1
 
@@ -22,17 +22,6 @@
 #define DPIN_CNTRST   5
 #define DPIN_BKLT     6
 #define DPIN_FLOW     8
-
-LiquidCrystal lcd(13, A1, A2, A3, A4, A5);
-
-#include "floatprint.h"
-static FloatPrint<10> fp;
-
-static char g_SerialBuff[40];
-static float g_Liters;
-static uint32_t g_RunningTime;
-static float g_FixedScale;
-static uint16_t g_Battery;
 
 #define EXPMA(x) (2.0f / (1+x))
 
@@ -67,6 +56,18 @@ static struct tagScaleLevels
   //{ 1667, 1.093f },   // 37.5Hz  5 LPM
 };
 
+LiquidCrystal lcd(13, A1, A2, A3, A4, A5);
+
+#include "floatprint.h"
+static FloatPrint<10> fp;
+
+static char g_SerialBuff[40];
+static float g_Liters;
+static uint32_t g_RunningTime;
+static float g_FixedScale;
+static uint16_t g_Battery;
+
+
 static struct timerInfo
 {
   uint16_t totalTime;
@@ -76,8 +77,8 @@ static struct timerInfo
 ISR(TIMER1_CAPT_vect)
 {
   TCNT1 = 0;
-  // If there has been an overflow since the last capture, the period is longer
-  // than 1 second so we're not interested in such slowness
+  // If there has been an overflow since the last capture, the frequency
+  // is less than 1Hz so we're not interested in such slowness
   if (bit_is_set(TIFR1, TOV1))
   {
     bitSet(TIFR1, TOV1); // clear overflow
@@ -149,7 +150,6 @@ static void lcd_printTime(uint32_t t)
 
 static void sleep(void)
 {
-  //delay(ms); return;
   static uint32_t lastSleepEnd;
 
   set_sleep_mode(SLEEP_MODE_IDLE);
