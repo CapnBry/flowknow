@@ -47,8 +47,9 @@ static struct tagScaleLevels
   // If more than 1L adjust the scale HIGHER
   // If less than 1L adjust the scale LOWER
   // First number is T1FREQ / (LPM * SENSOR_HZ_PER_LPM)
-  { 6250, 1.35f },    // 5Hz     0.667 LPM
-  { 4166, 1.20f },    // 7.5Hz   1 LPM
+  { 8333, 1.43f },    // 3.75Hz  0.5 LPM
+  { 6250, 1.33f },    // 5Hz     0.667 LPM
+  { 4166, 1.19f },    // 7.5Hz   1 LPM
   { 2778, 1.15f },    // 11.25Hz 1.5 LPM
   { 2083, 1.11f },    // 15Hz    2 LPM
   { 1385, 1.10f },    // 22.5Hz  3 LPM
@@ -270,7 +271,7 @@ static void lcd_updateAnim(void)
 #ifdef SERIAL_INTERFACE
   if (g_FixedScale != 0.0f)
   {
-    lcd.print("Sca: ");
+    lcd.print("Scale");
     fp.print(lcd, g_FixedScale, 5, 3);
     return;
   }
