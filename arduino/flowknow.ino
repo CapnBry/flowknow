@@ -31,6 +31,7 @@
 #define LOOPCNT_LCD        LOOPCNT_SENSOR_LO
 #define LOOP_SMOOTH_COARSE EXPMA(1.2f)
 #define LOOP_SMOOTH_FINE   EXPMA(1.8f)
+#define IDLE_POWERDOWN_MINS 30
 
 #define LITERS_PER_GALLON 0.264172f
 #define SENSOR_HZ_PER_LPM 7.5f
@@ -158,6 +159,32 @@ static void sleep(void)
     sleep_mode();
 
   lastSleepEnd += LOOP_PERIOD;
+}
+
+static void shutdown(void)
+{
+  lcd.setCursor(0, 0);
+  lcd.print("     Sleep Mode     ");
+
+  digitalWrite(DPIN_BKLT, LOW);
+  pinMode(DPIN_BKLT, INPUT);
+  digitalWrite(DPIN_CNTRST, LOW);
+  pinMode(DPIN_BKLT, INPUT);
+  digitalWrite(DPIN_FLOW, LOW);
+  pinMode(DPIN_FLOW, INPUT);
+
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+  sleep_enable();
+  while (true)
+  {
+    // Turn off Brown Out Detector
+    // sleep must be entered within 3 cycles of BODS being set
+    MCUCR = MCUCR | bit(BODSE) | bit(BODS);
+    MCUCR = (MCUCR & ~bit(BODSE)) | bit(BODS);
+
+    // Sleep
+    sleep_cpu();
+  }
 }
 
 static void setTone(uint16_t freq)
@@ -374,6 +401,7 @@ void loop()
   static uint8_t loopcntSensor;
   static uint8_t loopcntLcd;
   static uint32_t lastLoopMillis;
+  static uint16_t zeroCnt;
   static float hzLast = 0.0f;
   static float hzFastAvg = 0.0f;
 
@@ -401,6 +429,7 @@ void loop()
       hzLast = T1FREQ * scale / localT1;
       g_Liters += localTimerInfo.cnt * scale / (SENSOR_HZ_PER_LPM * 60.0f);
       g_RunningTime += millis() - lastLoopMillis;
+      zeroCnt = 0;
 
 #if SERIAL_INTERFACE
       Serial.print('S'); Serial.print(scale, 3); Serial.print(' ');
@@ -408,7 +437,10 @@ void loop()
 #endif
     }
     else
+    {
       hzLast = 0.0f;
+      ++zeroCnt;
+    }
 
     // Adjust the SENSOR loop duration to prevent error caused by low sample rate
     // but not so fast the display updates so quickly it is unreadable
@@ -451,6 +483,12 @@ void loop()
 #if SERIAL_INTERFACE
     Serial.print("{hz,T,"); Serial.print(hzFastAvg, 2); Serial.print("}"); Serial_nl();
     Serial.print("{lpm,T,"); Serial.print(lpm, 2); Serial.print("}"); Serial_nl();
+#endif
+
+#if defined(IDLE_POWERDOWN_MINS)
+    // If has been reading zeros for IDLE_POWERDOWN_MINS then power down
+    if (zeroCnt > (IDLE_POWERDOWN_MINS * 60 * (1000 / LOOP_PERIOD)))
+      shutdown();
 #endif
   }
 
