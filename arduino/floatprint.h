@@ -6,11 +6,12 @@ template <size_t bufsize> class FloatPrint : public Print
 public:
   FloatPrint(void) {}
   using Print::write;
-  virtual size_t write(uint8_t c) { if (pos < bufsize) buf[pos++] = c; return 1; }
+  virtual size_t write(uint8_t c) { if (pos < bufsize && pos < wid) buf[pos++] = c; return 1; }
 
   void print(Print &p, double n, uint8_t width, uint8_t prec)
   {
     pos = 0;
+    wid = width;
     Print::print(n, prec);
     
     uint8_t r = width - pos;
@@ -28,6 +29,7 @@ public:
 private:
   char buf[bufsize];
   uint8_t pos;
+  uint8_t wid;
 };
 
 #endif
