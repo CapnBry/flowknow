@@ -429,7 +429,6 @@ void loop()
       hzLast = T1FREQ * scale / localT1;
       g_Liters += localTimerInfo.cnt * scale / (SENSOR_HZ_PER_LPM * 60.0f);
       g_RunningTime += millis() - lastLoopMillis;
-      zeroCnt = 0;
 
 #if SERIAL_INTERFACE
       Serial.print('S'); Serial.print(scale, 3); Serial.print(' ');
@@ -437,10 +436,7 @@ void loop()
 #endif
     }
     else
-    {
       hzLast = 0.0f;
-      ++zeroCnt;
-    }
 
     // Adjust the SENSOR loop duration to prevent error caused by low sample rate
     // but not so fast the display updates so quickly it is unreadable
@@ -486,8 +482,13 @@ void loop()
 #endif
 
 #if defined(IDLE_POWERDOWN_MINS)
+    if (hzLast == 0)
+      ++zeroCnt;
+    else
+      zeroCnt = 0;
+
     // If has been reading zeros for IDLE_POWERDOWN_MINS then power down
-    if (zeroCnt > (IDLE_POWERDOWN_MINS * 60 * (1000 / LOOP_PERIOD)))
+    if (zeroCnt > (IDLE_POWERDOWN_MINS * 60 * (1000 / LOOP_PERIOD) / LOOPCNT_LCD))
       shutdown();
 #endif
   }
